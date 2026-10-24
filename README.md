@@ -16,6 +16,18 @@ BLINK is an AI-powered application-building workspace. Describe an idea in plain
 - Local draft storage for starter projects before cloud services are configured.
 - Basic security response headers and request/output size validation.
 
+> **Deployment note:** If the public GitHub Pages address displays this README, it is showing repository documentation rather than running BLINK. GitHub Pages does not run the Next.js server route used for authenticated AI generation. Deploy this repository to Vercel (recommended) or another Node.js host and configure the server environment variables below. The GitHub Pages URL is not the full application.
+
+## Deploy the full application with Vercel
+
+1. Import `midomochaqis-web/BLINK` into a Vercel project.
+2. Keep the framework set to Next.js and use the repository's default build command.
+3. Add the environment variables listed below in Vercel's project settings. The Supabase service-role key and AI provider key must be server-only secrets.
+4. Apply every SQL file in `supabase/migrations/` to the connected Supabase project.
+5. Deploy. Use the Vercel deployment URL as the actual BLINK application URL and configure that domain in Supabase Authentication's site URL and redirect URL allowlist.
+
+The repository includes a `Dockerfile` for other Node.js container hosts as well. GitHub Pages may still serve documentation while its publishing source is configured to the branch root; switch to the deployed Vercel URL for the full server-backed app.
+
 ## Requirements
 
 - Node.js 20.9 or later

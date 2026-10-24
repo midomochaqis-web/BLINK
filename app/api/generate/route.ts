@@ -5,7 +5,7 @@ import { enforcePreviewPolicy, isSafeGeneratedFilePath } from "@/lib/generation/
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 75;
+export const maxDuration = 60;
 
 const requestSchema = z.object({
   prompt: z.string().trim().min(12, "Describe what you want to build in a little more detail.").max(8000),
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
   ].filter(Boolean).join("\n\n");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 65000);
+  const timeout = setTimeout(() => controller.abort(), 55000);
   try {
     const response = await fetch(baseUrl + "/chat/completions", {
       method: "POST",

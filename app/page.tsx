@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Archive, ArrowDownToLine, ArrowRight, Blocks, Check, ChevronDown, CircleHelp, Code2, Eye, FileCode2, FolderKanban, Globe2, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, Mail, Monitor, MoreHorizontal, PanelLeftClose, Plus, Rocket, Save, Search, ShieldCheck, Sparkles, Smartphone, Trash2, X, Zap } from "lucide-react";
 import JSZip from "jszip";
 import type { User } from "@supabase/supabase-js";
@@ -115,7 +115,7 @@ export default function Home() {
 
   function resetWorkspace() { setPrompt(""); setActiveProject(null); setActiveTab("preview"); setMessage(null); requestAnimationFrame(() => textareaRef.current?.focus()); }
 
-  async function handleAuth(event: React.FormEvent<HTMLFormElement>) {
+  async function handleAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) { setMessage({ kind: "error", text: "Authentication is not configured. Add the Supabase URL and public key, then restart the app." }); return; }
     setAuthBusy(true); setMessage(null);

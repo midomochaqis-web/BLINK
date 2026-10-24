@@ -55,4 +55,11 @@ describe("generated preview content security policy", () => {
     expect(output).toContain("<head><meta http-equiv=\"Content-Security-Policy\"");
     expect(output).toContain("<body>Safe</body>");
   });
+
+  it("wraps code-editor fragments in a policy-protected document", () => {
+    const output = enforcePreviewPolicy("<script>window.demo = true;</script>");
+    expect(output).toContain("<head><meta http-equiv=\"Content-Security-Policy\"");
+    expect(output).toContain("<body><script>window.demo = true;</script></body>");
+    expect(output.indexOf("Content-Security-Policy")).toBeLessThan(output.indexOf("<script>"));
+  });
 });

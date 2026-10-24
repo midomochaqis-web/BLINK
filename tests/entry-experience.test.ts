@@ -23,7 +23,9 @@ describe("BLINK first-run experience", () => {
     const route = read("app/api/generate/route.ts");
 
     expect(page).toContain('fetch("/api/generate"');
-    expect(page).toContain('srcDoc={enforcePreviewPolicy(activeProject.html)}');
+    expect(page).toContain('srcDoc={createPreviewDocument(activeProject.html)}');
+    expect(page).toContain("blink-preview-runtime-error");
+    expect(page).toContain("window.addEventListener('error'");
     expect(page).toContain('sandbox="allow-scripts"');
     expect(route).toContain('process.env.OPENAI_API_KEY');
     expect(route).toContain('request.headers.get("authorization")');

@@ -64,10 +64,9 @@ async function readBoundedJson(request: Request, maxBytes: number): Promise<unkn
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const providerKey = process.env.OPENAI_API_KEY;
 
-  if (!supabaseUrl || !anonKey || !serviceKey) {
+  if (!supabaseUrl || !anonKey) {
     return fail("BLINK needs Supabase environment variables and the database migration before AI generation can be enabled.", 503);
   }
   if (!providerKey) return fail("AI generation is not configured yet. Add OPENAI_API_KEY to the server environment.", 503);
@@ -109,13 +108,12 @@ export async function POST(request: Request) {
   const { data: authData, error: authError } = await authClient.auth.getUser(token);
   if (authError || !authData.user) return fail("Your session is invalid or expired. Sign in again.", 401);
 
-  const admin = createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: allowed, error: quotaError } = await admin.rpc("consume_generation_quota", {
+  // Consume quota through the user's own JWT. The RPC verifies auth.uid()
+  // against p_user_id, and no service-role credential is needed for quota use.
+  const { data: allowed, error: quotaError } = await authClient.rpc("consume_generation_quota", {
     p_user_id: authData.user.id,
     p_limit: 20,
-  });
+  }, { headers: { Authorization: "Bearer " + token } });
   if (quotaError) {
     console.error("BLINK quota RPC error", quotaError.message);
     return fail("Generation limits are not ready. Apply the BLINK Supabase migration and try again.", 503);

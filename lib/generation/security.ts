@@ -30,16 +30,16 @@ export function isSafeGeneratedFilePath(path: string): boolean {
  * network access, remote assets, form submission, nested frames, and plugins.
  */
 export function enforcePreviewPolicy(source: string): string {
-  const withoutExistingPolicy = source.replace(/<meta\\b[^>]*content-security-policy[^>]*>/gi, "");
-  if (/<head\\b[^>]*>/i.test(withoutExistingPolicy)) {
-    return withoutExistingPolicy.replace(/<head\\b[^>]*>/i, (head) => head + PREVIEW_CSP);
+  const withoutExistingPolicy = source.replace(/<meta\b[^>]*content-security-policy[^>]*>/gi, "");
+  if (/<head\b[^>]*>/i.test(withoutExistingPolicy)) {
+    return withoutExistingPolicy.replace(/<head\b[^>]*>/i, (head) => head + PREVIEW_CSP);
   }
-  if (/<html\\b[^>]*>/i.test(withoutExistingPolicy)) {
-    return withoutExistingPolicy.replace(/<html\\b[^>]*>/i, (tag) => tag + "<head>" + PREVIEW_CSP + "</head>");
+  if (/<html\b[^>]*>/i.test(withoutExistingPolicy)) {
+    return withoutExistingPolicy.replace(/<html\b[^>]*>/i, (tag) => tag + "<head>" + PREVIEW_CSP + "</head>");
   }
 
   // Edited/local documents can be malformed or partial. Never return raw source
   // without a policy: wrap fragments in a full document with the policy in its head.
-  const bodySource = withoutExistingPolicy.replace(/<!doctype\\s+html[^>]*>/gi, "");
+  const bodySource = withoutExistingPolicy.replace(/<!doctype\s+html[^>]*>/gi, "");
   return "<!doctype html><html><head>" + PREVIEW_CSP + "</head><body>" + bodySource + "</body></html>";
 }

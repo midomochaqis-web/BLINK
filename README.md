@@ -11,7 +11,7 @@ BLINK is an AI-powered application-building workspace. Describe an idea in plain
 - Row Level Security (RLS) policies on project data.
 - Generated HTML rendered in a sandboxed iframe, separate from the BLINK application origin.
 - Three interactive starter applications for immediate exploration.
-- Desktop/mobile sandboxed previews, editable HTML source, copy, save, delete, and downloadable HTML.
+- Desktop/mobile sandboxed previews, a multi-file source editor, copy, save, delete, standalone HTML download, and ZIP source-bundle export.
 - Local draft storage for starter projects before cloud services are configured.
 - Basic security response headers and request/output size validation.
 
@@ -49,8 +49,9 @@ BLINK is an AI-powered application-building workspace. Describe an idea in plain
 - The quota RPC can only be executed by the service role.
 - Project rows are protected by user-scoped RLS policies.
 - Prompt length, generated HTML size, output files and upstream timeouts are bounded.
-- Preview content runs in a sandboxed iframe without `allow-same-origin`. Treat user-generated applications as untrusted.
-- This initial foundation still needs deployment-specific monitoring, billing controls, abuse reporting, automated tests, and production observability before a public launch.
+- Generated HTML receives a restrictive Content Security Policy; previews run in a sandboxed iframe without `allow-same-origin`.
+- The preview blocks network requests and form submission by default. Generated features that need a real backend must be connected to a separately secured service.
+- This implementation is an MVP foundation, not a finished production service. Before public launch, add deployment-specific monitoring, billing controls, abuse reporting, automated integration/security tests, production observability, and a separately secured runtime for backend-dependent generated apps.
 
 ## Build and type-check
 

@@ -12,12 +12,17 @@ export function isSafeGeneratedFilePath(path: string): boolean {
     return false;
   }
   const segments = path.split("/");
-  return segments.every((segment) =>
-    segment.length > 0 &&
-    segment !== "." &&
-    segment !== ".." &&
-    !RESERVED_SEGMENTS.has(segment.toLowerCase())
-  );
+  return segments.every((segment) => {
+    const normalized = segment.toLowerCase();
+    const windowsDeviceName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(normalized.split(".")[0] || "");
+    return segment.length > 0 &&
+      segment !== "." &&
+      segment !== ".." &&
+      !/[. ]$/.test(segment) &&
+      !windowsDeviceName &&
+      !normalized.startsWith(".env") &&
+      !RESERVED_SEGMENTS.has(normalized);
+  });
 }
 
 /**

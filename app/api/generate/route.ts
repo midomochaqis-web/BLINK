@@ -25,6 +25,14 @@ function fail(message: string, status: number) {
   return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+function enforcePreviewPolicy(source: string): string {
+  const policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' data:; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'\">";
+  let html = source.replace(/<meta\b[^>]*content-security-policy[^>]*>/gi, "");
+  if (/<head\b[^>]*>/i.test(html)) return html.replace(/<head\b[^>]*>/i, (head) => head + policy);
+  if (/<html\b[^>]*>/i.test(html)) return html.replace(/<html\b[^>]*>/i, (tag) => tag + "<head>" + policy + "</head>");
+  return html.replace(/<!doctype\s+html[^>]*>/i, (doctype) => doctype + "<head>" + policy + "</head>");
+}
+
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -131,9 +139,10 @@ export async function POST(request: Request) {
       }
       paths.add(file.path);
     }
-    if (new TextEncoder().encode(output.data.html).byteLength > 700000) return fail("The generated HTML is too large to store safely. Try a smaller request.", 502);
-    const projectFiles = [{ path: "index.html", content: output.data.html }, ...output.data.files.filter((file) => file.path !== "index.html").slice(0, 29)];
-    return NextResponse.json({ ...output.data, files: projectFiles }, { headers: { "Cache-Control": "no-store" } });
+    const safeHtml = enforcePreviewPolicy(output.data.html);
+    if (new TextEncoder().encode(safeHtml).byteLength > 700000) return fail("The generated HTML is too large to store safely. Try a smaller request.", 502);
+    const projectFiles = [{ path: "index.html", content: safeHtml }, ...output.data.files.filter((file) => file.path !== "index.html").slice(0, 29)];
+    return NextResponse.json({ ...output.data, html: safeHtml, files: projectFiles }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") return fail("Generation timed out. Try a smaller request.", 504);
     console.error("BLINK generation failure", error instanceof Error ? error.message : "unknown error");

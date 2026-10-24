@@ -62,8 +62,8 @@ async function readBoundedJson(request: Request, maxBytes: number): Promise<unkn
 
 
 export async function POST(request: Request) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://bsyccwbjjhnhlpiuwuhw.supabase.co";
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJzeWNjd2JqamhuaGxwaXV3dWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI4NzI5NTMsImV4cCI6MjEwODQ0ODk1M30.5J5XeImeso41GyOtFrViwcn9w8pIlMMgcoYd_SWOGCk";
   const providerKey = process.env.OPENAI_API_KEY;
 
   if (!supabaseUrl || !anonKey) {

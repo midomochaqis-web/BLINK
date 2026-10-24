@@ -131,7 +131,9 @@ export async function POST(request: Request) {
       }
       paths.add(file.path);
     }
-    return NextResponse.json(output.data, { headers: { "Cache-Control": "no-store" } });
+    if (new TextEncoder().encode(output.data.html).byteLength > 700000) return fail("The generated HTML is too large to store safely. Try a smaller request.", 502);
+    const projectFiles = [{ path: "index.html", content: output.data.html }, ...output.data.files.filter((file) => file.path !== "index.html").slice(0, 29)];
+    return NextResponse.json({ ...output.data, files: projectFiles }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") return fail("Generation timed out. Try a smaller request.", 504);
     console.error("BLINK generation failure", error instanceof Error ? error.message : "unknown error");

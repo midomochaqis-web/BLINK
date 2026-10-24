@@ -154,9 +154,13 @@ export default function Home() {
   async function startGeneration() {
     const trimmed = prompt.trim();
     if (trimmed.length < 12) { setMessage({ kind: "error", text: "Describe your app in at least a sentence so BLINK has enough context." }); textareaRef.current?.focus(); return; }
-    if (!supabase || !user) {
+    if (!supabase) {
+      setMessage({ kind: "error", text: "Cloud generation is not configured yet. Add the Supabase URL and public key, then configure the server AI key." });
+      return;
+    }
+    if (!user) {
       setAuthMode("signup"); setAuthOpen(true);
-      setMessage({ kind: "info", text: !backendConfigured ? "To generate with AI, configure Supabase and your AI provider in the deployment environment." : "Create an account or sign in before generating an app." });
+      setMessage({ kind: "info", text: "Create an account or sign in before generating an app." });
       return;
     }
     if (!generationReady) { setMessage({ kind: "error", text: "AI generation is not configured yet. Set the server environment variables and apply the database migration." }); return; }

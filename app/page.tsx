@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowRight, Blocks, Check, ChevronDown, CircleHelp, Code2, Eye, FileCode2, FolderKanban, Globe2, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, Mail, Monitor, MoreHorizontal, PanelLeftClose, Plus, Rocket, Save, Search, ShieldCheck, Sparkles, Smartphone, X, Zap } from "lucide-react";
+import { ArrowDownToLine, ArrowRight, Blocks, Check, ChevronDown, CircleHelp, Code2, Eye, FileCode2, FolderKanban, Globe2, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, Mail, Monitor, MoreHorizontal, PanelLeftClose, Plus, Rocket, Save, Search, ShieldCheck, Sparkles, Smartphone, Trash2, X, Zap } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -71,8 +71,15 @@ export default function Home() {
       const { data, error } = await supabase.from("projects").select("id,title,prompt,html,files,updated_at").order("updated_at", { ascending: false }).limit(50);
       if (!error && data) {
         const cloud: Project[] = data.map((row) => ({ id: row.id, title: row.title, prompt: row.prompt, html: row.html, files: Array.isArray(row.files) ? row.files as Project["files"] : [], updated_at: row.updated_at, local: false }));
-        setProjects(cloud);
-        setActiveProject((current) => current && cloud.some((p) => p.id === current.id) ? cloud.find((p) => p.id === current.id) || null : null);
+        let localProjects: Project[] = [];
+        try {
+          const raw = localStorage.getItem("blink.localProjects");
+          const parsedLocal = raw ? JSON.parse(raw) as Project[] : [];
+          if (Array.isArray(parsedLocal)) localProjects = parsedLocal.filter((p) => p && p.local && typeof p.id === "string" && typeof p.html === "string");
+        } catch { localProjects = []; }
+        const combined = [...cloud, ...localProjects.filter((p) => !cloud.some((row) => row.id === p.id))].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+        setProjects(combined);
+        setActiveProject((current) => current && combined.some((p) => p.id === current.id) ? combined.find((p) => p.id === current.id) || null : null);
       } else {
         setMessage({ kind: "error", text: "Could not load cloud projects. Check your Supabase schema and row-level security policies." });
       }
@@ -190,6 +197,22 @@ export default function Home() {
 
   function openProject(project: Project) { setActiveProject(project); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); }
 
+  async function deleteProject(project: Project) {
+    try {
+      if (supabase && user && !project.local) {
+        const { error } = await supabase.from("projects").delete().eq("id", project.id);
+        if (error) throw new Error(error.message);
+      }
+      const next = projects.filter((item) => item.id !== project.id);
+      if (project.local) saveLocalProjects(next);
+      else setProjects(next);
+      if (activeProject?.id === project.id) { setActiveProject(null); setPrompt(""); }
+      setMessage({ kind: "success", text: "Project deleted." });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not delete the project." });
+    }
+  }
+
   function applyCodeChanges() {
     if (!activeProject) return;
     const hasIndex = activeProject.files.some((file) => file.path === "index.html");
@@ -224,7 +247,7 @@ export default function Home() {
       <button className="side-link" onClick={() => { setProjectQuery(""); setMessage({ kind: "info", text: "Your recent projects are listed below. Choose one to reopen it." }); }}><FolderKanban size={17}/> My projects <span className="count">{projects.length}</span></button>
       <div className="sidebar-section-heading"><span className="sidebar-label">RECENT PROJECTS</span><button className="icon-button subtle" aria-label="Clear project search" onClick={() => setProjectQuery("")}><Search size={14}/></button></div>
       <div className="project-search"><Search size={14}/><input value={projectQuery} onChange={(e) => setProjectQuery(e.target.value)} placeholder="Find a project" aria-label="Search projects"/></div>
-      <div className="project-list">{loadingProjects ? <div className="sidebar-empty"><LoaderCircle size={15} className="spin"/> Loading projects…</div> : visibleProjects.length ? visibleProjects.map((p) => <button key={p.id} className={"project-link " + (activeProject?.id === p.id ? "selected" : "")} onClick={() => openProject(p)} title={p.title}><FileCode2 size={15}/><span>{p.title}</span><span className="project-date">{formatDate(p.updated_at)}</span></button>) : <div className="sidebar-empty">Your projects will appear here.</div>}</div>
+      <div className="project-list">{loadingProjects ? <div className="sidebar-empty"><LoaderCircle size={15} className="spin"/> Loading projects…</div> : visibleProjects.length ? visibleProjects.map((p) => <div className="project-item" key={p.id}><button className={"project-link " + (activeProject?.id === p.id ? "selected" : "")} onClick={() => openProject(p)} title={p.title}><FileCode2 size={15}/><span>{p.title}</span><span className="project-date">{formatDate(p.updated_at)}</span></button><button className="delete-project" onClick={() => void deleteProject(p)} aria-label={"Delete " + p.title} title="Delete project"><Trash2 size={13}/></button></div>) : <div className="sidebar-empty">Your projects will appear here.</div>}</div>
       <div className="sidebar-bottom">
         <div className="usage-card"><div className="usage-icon"><Zap size={15}/></div><div><strong>Build without limits.</strong><p>Ideas in. Apps out.</p></div><ArrowRight size={15}/></div>
         <button className="side-link" onClick={() => setMessage({ kind: "info", text: setupHint })}><CircleHelp size={17}/> Help & setup</button>

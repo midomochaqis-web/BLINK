@@ -101,3 +101,19 @@
 .preview-runtime-error strong{display:block;font-size:10px;margin-bottom:2px}
 .preview-runtime-error button{background:transparent;border:0;color:#853b42;font-size:10px;font-weight:800;padding:2px 0 2px 8px}
 .preview-runtime-error button:hover{text-decoration:underline;text-underline-offset:3px}
+
+
+.ai-history{margin:0 0 24px;padding:18px 20px;border:1px solid #e9e8f1;border-radius:14px;background:#fff}
+.ai-history-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.ai-history-heading>div{display:flex;flex-direction:column;gap:4px}
+.ai-history-heading strong{font-size:13px;font-weight:760;color:#191925}
+.ai-history-heading span,.ai-history-count{font-size:10px;color:#77768a}
+.ai-history-count{white-space:nowrap;border:1px solid #e9e8f1;border-radius:999px;padding:5px 8px}
+.ai-history-list{display:flex;flex-direction:column;gap:10px;max-height:350px;overflow:auto}
+.ai-history-message{padding:12px 14px;border-radius:10px;max-width:94%;overflow-wrap:anywhere}
+.ai-history-message>span{font-size:9px;font-weight:850;letter-spacing:.08em}
+.ai-history-message p{margin:6px 0 0;font-size:11px;line-height:1.7;white-space:pre-wrap}
+.ai-history-user{align-self:flex-end;background:#f0efff;color:#302b78}
+.ai-history-assistant{align-self:flex-start;background:#f7f7fa;color:#343344;border:1px solid #efeff4}
+.ai-history-empty{font-size:11px;line-height:1.7;color:#77768a;margin:0;padding:12px 0}
+@media(max-width:600px){.ai-history{padding:14px}.ai-history-message{max-width:100%}}

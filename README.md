@@ -10,7 +10,9 @@ BLINK is an AI-powered application-building workspace. Describe an idea in plain
 - Per-user hourly generation quota enforced by a database RPC (20 generations per hour by default).
 - Row Level Security (RLS) policies on project data.
 - Generated HTML rendered in a sandboxed iframe, separate from the BLINK application origin.
-- Download generated HTML and inspect generated source files.
+- Three interactive starter applications for immediate exploration.
+- Desktop/mobile sandboxed previews, editable HTML source, copy, save, delete, and downloadable HTML.
+- Local draft storage for starter projects before cloud services are configured.
 - Basic security response headers and request/output size validation.
 
 ## Requirements

@@ -47,6 +47,14 @@ function makeId() {
 function starterFiles(html: string) { return [{ path: "index.html", content: html }]; }
 function formatDate(value: string) { const d = new Date(value); return Number.isNaN(d.getTime()) ? "Just now" : new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(d); }
 
+function createPreviewDocument(source: string): string {
+  const safeHtml = enforcePreviewPolicy(source);
+  // This small in-frame reporter observes JavaScript failures only; generated
+  // code still runs in an opaque-origin iframe with network access blocked by CSP.
+  const reporter = "<script>(function(){function report(message){try{parent.postMessage({type:'blink-preview-runtime-error',message:String(message).slice(0,240)},'*')}catch{}}window.addEventListener('error',function(event){report(event.message||'Script error')});window.addEventListener('unhandledrejection',function(event){var reason=event.reason;report(reason&&reason.message?reason.message:reason||'Unhandled promise rejection')})})();</script>";
+  return safeHtml.replace(/<\\/head>/i, reporter + "</head>");
+}
+
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -55,6 +63,8 @@ export default function Home() {
   const [authInitializing, setAuthInitializing] = useState(true);
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [previewRevision, setPreviewRevision] = useState(0);
+  const [previewRuntimeError, setPreviewRuntimeError] = useState<string | null>(null);
+  const previewFrameRef = useRef<HTMLIFrameElement>(null);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -140,6 +150,17 @@ export default function Home() {
     const term = projectQuery.trim().toLowerCase();
     return projects.filter((p) => !term || p.title.toLowerCase().includes(term)).slice(0, 12);
   }, [projects, projectQuery]);
+
+  useEffect(() => {
+    function receivePreviewMessage(event: MessageEvent) {
+      if (event.source !== previewFrameRef.current?.contentWindow) return;
+      const payload = event.data as { type?: unknown; message?: unknown } | null;
+      if (!payload || typeof payload !== "object" || payload.type !== "blink-preview-runtime-error" || typeof payload.message !== "string") return;
+      setPreviewRuntimeError(payload.message.slice(0, 240));
+    }
+    window.addEventListener("message", receivePreviewMessage);
+    return () => window.removeEventListener("message", receivePreviewMessage);
+  }, []);
 
   function resetWorkspace() { setPrompt(""); setActiveProject(null); setActiveTab("preview"); setMessage(null); requestAnimationFrame(() => textareaRef.current?.focus()); }
 
@@ -296,6 +317,8 @@ export default function Home() {
       const project: Project = { id: activeProject && !activeProject.local ? activeProject.id : makeId(), title: (data.name || "Untitled project").slice(0, 120), prompt: trimmed, html: data.html, files: mergedFiles, updated_at: new Date().toISOString(), local: false };
       const saved = await persistProject(project);
       setActiveProject(saved);
+      setPreviewRuntimeError(null);
+      setPreviewRevision((revision) => revision + 1);
       setActiveFilePath("index.html");
       setCodeDraft(saved.files.find((file) => file.path === "index.html")?.content || saved.html);
       setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 50));
@@ -308,7 +331,7 @@ export default function Home() {
     const html = makeStarterHtml(template.kind);
     const project: Project = { id: makeId(), title: template.title, prompt: "Starter template: " + template.title + ". " + template.description, html, files: starterFiles(html), updated_at: new Date().toISOString(), local: true };
     const next = [project, ...projects.filter((p) => p.id !== project.id)].slice(0, 50);
-    saveLocalProjects(next); setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(html); setPrompt(project.prompt); setActiveTab("preview");
+    saveLocalProjects(next); setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(html); setPrompt(project.prompt); setActiveTab("preview"); setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1);
     setMessage({ kind: "success", text: template.title + " is ready to explore. This starter is saved locally on this device." });
   }
 
@@ -322,7 +345,7 @@ export default function Home() {
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not save the project." }); }
   }
 
-  function openProject(project: Project) { setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); }
+  function openProject(project: Project) { setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1); }
 
   async function deleteProject(project: Project) {
     try {
@@ -350,6 +373,7 @@ export default function Home() {
     const isPreviewDocument = targetPath === "index.html";
     const updated: Project = { ...activeProject, html: isPreviewDocument ? codeDraft : activeProject.html, files, updated_at: new Date().toISOString() };
     setActiveProject(updated);
+    if (isPreviewDocument) { setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1); }
     setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
     setMessage({ kind: "success", text: isPreviewDocument ? "Changes applied to the preview. Use Save to persist the updated project." : "Source file updated. The live preview uses index.html; save the project to persist all files." });
     if (isPreviewDocument) setActiveTab("preview");
@@ -483,7 +507,7 @@ export default function Home() {
         {message && <div className={"notice notice-" + message.kind} role="status"><span className="notice-icon">{message.kind === "success" ? <Check size={15}/> : message.kind === "error" ? <X size={15}/> : <CircleHelp size={15}/>}</span><span>{message.text}</span><button aria-label="Dismiss notice" onClick={() => setMessage(null)}><X size={14}/></button></div>}
         {activeProject ? <section className="builder-panel">
           <div className="preview-toolbar"><div className="preview-title"><span className="live-dot"/><strong>{activeProject.title}</strong><span className="preview-version">Latest version</span></div><div className="preview-actions"><div className="preview-tabs"><button className={activeTab === "preview" ? "selected" : ""} onClick={() => setActiveTab("preview")}><Eye size={14}/> Preview</button><button className={activeTab === "code" ? "selected" : ""} onClick={() => { const path = activeProject.files.some((file) => file.path === activeFilePath) ? activeFilePath : "index.html"; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || activeProject.html); setActiveTab("code"); }}><Code2 size={14}/> Code</button></div><div className="device-toggle"><button className={!mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(false)} aria-label="Desktop preview"><Monitor size={15}/></button><button className={mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(true)} aria-label="Mobile preview"><Smartphone size={15}/></button></div><button className="icon-button" onClick={() => void saveCurrentProject()} title="Save project" aria-label="Save project"><Save size={15}/></button><button className="icon-button" onClick={() => void downloadSourceBundle()} title="Download complete source bundle" aria-label="Download complete source bundle"><Archive size={15}/></button><button className="icon-button" onClick={downloadProject} title="Download HTML" aria-label="Download HTML"><ArrowDownToLine size={15}/></button></div></div>
-          {activeTab === "preview" ? <div className="preview-stage"><div className={"browser-frame " + (mobilePreview ? "mobile-frame" : "")}><div className="browser-chrome"><div className="traffic-lights"><i/><i/><i/></div><div className="browser-url"><LockKeyhole size={10}/> blink-preview.local</div><button className="browser-reload" type="button" onClick={() => setPreviewRevision((revision) => revision + 1)} aria-label="Restart preview" title="Restart preview"><ArrowRight size={13}/></button></div><iframe key={previewRevision} className="preview-iframe" title={"Preview of " + activeProject.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={enforcePreviewPolicy(activeProject.html)}/></div></div> : <div className="code-panel"><div className="code-file"><FileCode2 size={14}/><select className="source-file-select" aria-label="Choose source file" value={activeFilePath} onChange={(event) => { const path = event.target.value; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || (path === "index.html" ? activeProject.html : "")); }}><option value="index.html">index.html</option>{activeProject.files.filter((file) => file.path !== "index.html").map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}</select><button onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(codeDraft).then(() => setMessage({ kind: "success", text: "Source code copied." })).catch(() => setMessage({ kind: "error", text: "Clipboard access was denied." })); }}><Code2 size={13}/> Copy source</button><button className="apply-code-button" onClick={applyCodeChanges}><Check size={13}/> Apply changes</button></div><textarea className="code-editor" aria-label="Edit generated HTML" spellCheck={false} value={codeDraft} maxLength={700000} onChange={(event) => setCodeDraft(event.target.value)} /></div>}
+          {activeTab === "preview" ? <div className="preview-stage">{previewRuntimeError && <div className="preview-runtime-error" role="status"><CircleHelp size={14}/><span><strong>Preview runtime error</strong> {previewRuntimeError}</span><button type="button" onClick={() => setPreviewRuntimeError(null)}>Dismiss</button></div>}<div className={"browser-frame " + (mobilePreview ? "mobile-frame" : "")}><div className="browser-chrome"><div className="traffic-lights"><i/><i/><i/></div><div className="browser-url"><LockKeyhole size={10}/> blink-preview.local</div><button className="browser-reload" type="button" onClick={() => { setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1); }} aria-label="Restart preview" title="Restart preview"><ArrowRight size={13}/></button></div><iframe ref={previewFrameRef} key={previewRevision} className="preview-iframe" title={"Preview of " + activeProject.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={createPreviewDocument(activeProject.html)}/></div></div> : <div className="code-panel"><div className="code-file"><FileCode2 size={14}/><select className="source-file-select" aria-label="Choose source file" value={activeFilePath} onChange={(event) => { const path = event.target.value; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || (path === "index.html" ? activeProject.html : "")); }}><option value="index.html">index.html</option>{activeProject.files.filter((file) => file.path !== "index.html").map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}</select><button onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(codeDraft).then(() => setMessage({ kind: "success", text: "Source code copied." })).catch(() => setMessage({ kind: "error", text: "Clipboard access was denied." })); }}><Code2 size={13}/> Copy source</button><button className="apply-code-button" onClick={applyCodeChanges}><Check size={13}/> Apply changes</button></div><textarea className="code-editor" aria-label="Edit generated HTML" spellCheck={false} value={codeDraft} maxLength={700000} onChange={(event) => setCodeDraft(event.target.value)} /></div>}
           <div className="preview-footer"><span><ShieldCheck size={14}/> Runs in a sandboxed preview</span><span>{activeProject.files.length} file{activeProject.files.length === 1 ? "" : "s"} <span className="footer-dot">·</span> {activeProject.local ? "Saved on this device" : "Cloud project"}</span></div>
         </section> : <section className="templates-section"><div className="section-heading"><div><div className="section-eyebrow">A HEAD START</div><h2>Start with a strong foundation.</h2><p>Explore a working starter, or generate something entirely your own.</p></div><button className="text-button" onClick={() => setMessage({ kind: "info", text: setupHint })}>How it works <ArrowRight size={14}/></button></div><div className="template-grid">{TEMPLATES.map((template, index) => { const Icon = template.icon; return <button className="template-card" key={template.id} onClick={() => createStarter(template)}><div className={"template-art art-" + template.kind}><div className="art-window"><div className="art-window-top"><span/><span/><span/></div>{template.kind === "landing" ? <div className="art-landing"><i/><b/><b/><em/><span/></div> : template.kind === "dashboard" ? <div className="art-dashboard"><i/><div><b/><b/><b/></div><span/><span/><span/></div> : <div className="art-portfolio"><i/><b/><b/><span/><span/></div>}</div><span className="template-number">0{index + 1}</span><span className="template-tag">{template.tag}</span></div><div className="template-card-copy"><div className="template-icon"><Icon size={16}/></div><div className="template-copy-text"><strong>{template.title}</strong><p>{template.description}</p></div><span className="template-arrow"><ArrowRight size={16}/></span></div></button>; })}</div><div className="bottom-callout"><div className="callout-icon"><Rocket size={17}/></div><div><strong>Every great product starts somewhere.</strong><p>Use a starter as a reference—or write your own idea above to generate a custom application.</p></div><button className="button button-secondary" onClick={() => { textareaRef.current?.focus(); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Write a prompt <ArrowRight size={14}/></button></div></section>}
         <footer className="workspace-footer"><span>BLINK<span className="brand-period">.</span> <span className="footer-muted">Build with intelligence.</span></span><span><span className="footer-muted">{setupHint}</span> <span className="footer-dot">·</span> <button onClick={() => setMessage({ kind: "info", text: "BLINK previews run in a sandbox. Keep service-role and AI keys on the server, never in client code." })}>Security</button></span></footer>

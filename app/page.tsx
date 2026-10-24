@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowRight, Blocks, Check, ChevronDown, CircleHelp, Code2, Eye, FileCode2, FolderKanban, Globe2, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, Mail, Monitor, MoreHorizontal, PanelLeftClose, Plus, Rocket, Save, Search, ShieldCheck, Sparkles, Smartphone, Trash2, X, Zap } from "lucide-react";
+import { Archive, ArrowDownToLine, ArrowRight, Blocks, Check, ChevronDown, CircleHelp, Code2, Eye, FileCode2, FolderKanban, Globe2, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, Mail, Monitor, MoreHorizontal, PanelLeftClose, Plus, Rocket, Save, Search, ShieldCheck, Sparkles, Smartphone, Trash2, X, Zap } from "lucide-react";
+import JSZip from "jszip";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -51,6 +52,7 @@ export default function Home() {
   const [message, setMessage] = useState<{ kind: "error" | "success" | "info"; text: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"preview" | "code">("preview");
   const [codeDraft, setCodeDraft] = useState("");
+  const [activeFilePath, setActiveFilePath] = useState("index.html");
   const [mobilePreview, setMobilePreview] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [projectQuery, setProjectQuery] = useState("");
@@ -191,6 +193,7 @@ export default function Home() {
       const project: Project = { id: activeProject && !activeProject.local ? activeProject.id : makeId(), title: (data.name || "Untitled project").slice(0, 120), prompt: trimmed, html: data.html, files: data.files?.length ? data.files : starterFiles(data.html), updated_at: new Date().toISOString(), local: false };
       const saved = await persistProject(project);
       setActiveProject(saved);
+      setActiveFilePath("index.html");
       setCodeDraft(saved.files.find((file) => file.path === "index.html")?.content || saved.html);
       setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 50));
       setMessage({ kind: "success", text: data.summary || "Your application is ready. Preview it, inspect the code, or download the HTML." });
@@ -202,7 +205,7 @@ export default function Home() {
     const html = makeStarterHtml(template.kind);
     const project: Project = { id: makeId(), title: template.title, prompt: "Starter template: " + template.title + ". " + template.description, html, files: starterFiles(html), updated_at: new Date().toISOString(), local: true };
     const next = [project, ...projects.filter((p) => p.id !== project.id)].slice(0, 50);
-    saveLocalProjects(next); setActiveProject(project); setCodeDraft(html); setPrompt(project.prompt); setActiveTab("preview");
+    saveLocalProjects(next); setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(html); setPrompt(project.prompt); setActiveTab("preview");
     setMessage({ kind: "success", text: template.title + " is ready to explore. This starter is saved locally on this device." });
   }
 
@@ -216,7 +219,7 @@ export default function Home() {
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not save the project." }); }
   }
 
-  function openProject(project: Project) { setActiveProject(project); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); }
+  function openProject(project: Project) { setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); }
 
   async function deleteProject(project: Project) {
     try {
@@ -236,13 +239,17 @@ export default function Home() {
 
   function applyCodeChanges() {
     if (!activeProject) return;
-    const hasIndex = activeProject.files.some((file) => file.path === "index.html");
-    const files = hasIndex ? activeProject.files.map((file) => file.path === "index.html" ? { ...file, content: codeDraft } : file) : [{ path: "index.html", content: codeDraft }, ...activeProject.files];
-    const updated: Project = { ...activeProject, html: codeDraft, files, updated_at: new Date().toISOString() };
+    const targetPath = activeFilePath || "index.html";
+    const exists = activeProject.files.some((file) => file.path === targetPath);
+    const files = exists
+      ? activeProject.files.map((file) => file.path === targetPath ? { ...file, content: codeDraft } : file)
+      : [...activeProject.files, { path: targetPath, content: codeDraft }];
+    const isPreviewDocument = targetPath === "index.html";
+    const updated: Project = { ...activeProject, html: isPreviewDocument ? codeDraft : activeProject.html, files, updated_at: new Date().toISOString() };
     setActiveProject(updated);
     setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
-    setMessage({ kind: "success", text: "Changes applied to the preview. Use Save to persist the updated project." });
-    setActiveTab("preview");
+    setMessage({ kind: "success", text: isPreviewDocument ? "Changes applied to the preview. Use Save to persist the updated project." : "Source file updated. The live preview uses index.html; save the project to persist all files." });
+    if (isPreviewDocument) setActiveTab("preview");
   }
 
   function downloadProject() {
@@ -256,7 +263,30 @@ export default function Home() {
     setMessage({ kind: "success", text: "HTML download started." });
   }
 
-  const currentSource = activeProject?.files.find((f) => f.path === "index.html")?.content || activeProject?.html || "";
+  async function downloadSourceBundle() {
+    if (!activeProject) return;
+    try {
+      const zip = new JSZip();
+      const entries = activeProject.files.filter((file) => file.path !== "index.html");
+      zip.file("index.html", activeProject.html);
+      for (const file of entries) zip.file(file.path, file.content);
+      const safeName = activeProject.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "blink-project";
+      zip.file("README.md", "# " + activeProject.title + "\n\nGenerated with BLINK.\n\nOpen index.html in a browser to preview the standalone application.\n\nNote: external network access is disabled in the preview for safety. Server-dependent features require your own backend integration.\n");
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = safeName + "-source.zip";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage({ kind: "success", text: "Source bundle downloaded with the HTML and generated files." });
+    } catch {
+      setMessage({ kind: "error", text: "Could not create the source bundle. Try downloading the standalone HTML instead." });
+    }
+  }
+
   const setupHint = !backendConfigured ? "Connect Supabase to enable secure accounts and cloud projects." : !generationReady ? "Add the AI provider key and apply the Supabase migration to enable generation." : "Your builder is ready for AI generation.";
 
   return <main className="app-shell">
@@ -284,8 +314,8 @@ export default function Home() {
         <div className="prompt-shortcuts"><span>Try asking:</span>{EXAMPLE_PROMPTS.slice(0, 2).map((example) => <button key={example} onClick={() => setPrompt(example)}>{example.length > 49 ? example.slice(0, 49) + "…" : example}</button>)}</div>
         {message && <div className={"notice notice-" + message.kind} role="status"><span className="notice-icon">{message.kind === "success" ? <Check size={15}/> : message.kind === "error" ? <X size={15}/> : <CircleHelp size={15}/>}</span><span>{message.text}</span><button aria-label="Dismiss notice" onClick={() => setMessage(null)}><X size={14}/></button></div>}
         {activeProject ? <section className="builder-panel">
-          <div className="preview-toolbar"><div className="preview-title"><span className="live-dot"/><strong>{activeProject.title}</strong><span className="preview-version">Latest version</span></div><div className="preview-actions"><div className="preview-tabs"><button className={activeTab === "preview" ? "selected" : ""} onClick={() => setActiveTab("preview")}><Eye size={14}/> Preview</button><button className={activeTab === "code" ? "selected" : ""} onClick={() => { setCodeDraft(currentSource); setActiveTab("code"); }}><Code2 size={14}/> Code</button></div><div className="device-toggle"><button className={!mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(false)} aria-label="Desktop preview"><Monitor size={15}/></button><button className={mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(true)} aria-label="Mobile preview"><Smartphone size={15}/></button></div><button className="icon-button" onClick={() => void saveCurrentProject()} title="Save project" aria-label="Save project"><Save size={15}/></button><button className="icon-button" onClick={downloadProject} title="Download HTML" aria-label="Download HTML"><ArrowDownToLine size={15}/></button></div></div>
-          {activeTab === "preview" ? <div className="preview-stage"><div className={"browser-frame " + (mobilePreview ? "mobile-frame" : "")}><div className="browser-chrome"><div className="traffic-lights"><i/><i/><i/></div><div className="browser-url"><LockKeyhole size={10}/> blink-preview.local</div><ArrowRight size={13} className="browser-reload"/></div><iframe className="preview-iframe" title={"Preview of " + activeProject.title} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" srcDoc={activeProject.html}/></div></div> : <div className="code-panel"><div className="code-file"><FileCode2 size={14}/><span>{activeProject.files.find((file) => file.path === "index.html")?.path || "index.html"}</span><button onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(codeDraft).then(() => setMessage({ kind: "success", text: "Source code copied." })).catch(() => setMessage({ kind: "error", text: "Clipboard access was denied." })); }}><Code2 size={13}/> Copy source</button><button className="apply-code-button" onClick={applyCodeChanges}><Check size={13}/> Apply changes</button></div><textarea className="code-editor" aria-label="Edit generated HTML" spellCheck={false} value={codeDraft} maxLength={700000} onChange={(event) => setCodeDraft(event.target.value)} /></div>}
+          <div className="preview-toolbar"><div className="preview-title"><span className="live-dot"/><strong>{activeProject.title}</strong><span className="preview-version">Latest version</span></div><div className="preview-actions"><div className="preview-tabs"><button className={activeTab === "preview" ? "selected" : ""} onClick={() => setActiveTab("preview")}><Eye size={14}/> Preview</button><button className={activeTab === "code" ? "selected" : ""} onClick={() => { const path = activeProject.files.some((file) => file.path === activeFilePath) ? activeFilePath : "index.html"; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || activeProject.html); setActiveTab("code"); }}><Code2 size={14}/> Code</button></div><div className="device-toggle"><button className={!mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(false)} aria-label="Desktop preview"><Monitor size={15}/></button><button className={mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(true)} aria-label="Mobile preview"><Smartphone size={15}/></button></div><button className="icon-button" onClick={() => void saveCurrentProject()} title="Save project" aria-label="Save project"><Save size={15}/></button><button className="icon-button" onClick={() => void downloadSourceBundle()} title="Download complete source bundle" aria-label="Download complete source bundle"><Archive size={15}/></button><button className="icon-button" onClick={downloadProject} title="Download HTML" aria-label="Download HTML"><ArrowDownToLine size={15}/></button></div></div>
+          {activeTab === "preview" ? <div className="preview-stage"><div className={"browser-frame " + (mobilePreview ? "mobile-frame" : "")}><div className="browser-chrome"><div className="traffic-lights"><i/><i/><i/></div><div className="browser-url"><LockKeyhole size={10}/> blink-preview.local</div><ArrowRight size={13} className="browser-reload"/></div><iframe className="preview-iframe" title={"Preview of " + activeProject.title} sandbox="allow-scripts allow-forms" referrerPolicy="no-referrer" srcDoc={activeProject.html}/></div></div> : <div className="code-panel"><div className="code-file"><FileCode2 size={14}/><select className="source-file-select" aria-label="Choose source file" value={activeFilePath} onChange={(event) => { const path = event.target.value; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || (path === "index.html" ? activeProject.html : "")); }}><option value="index.html">index.html</option>{activeProject.files.filter((file) => file.path !== "index.html").map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}</select><button onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(codeDraft).then(() => setMessage({ kind: "success", text: "Source code copied." })).catch(() => setMessage({ kind: "error", text: "Clipboard access was denied." })); }}><Code2 size={13}/> Copy source</button><button className="apply-code-button" onClick={applyCodeChanges}><Check size={13}/> Apply changes</button></div><textarea className="code-editor" aria-label="Edit generated HTML" spellCheck={false} value={codeDraft} maxLength={700000} onChange={(event) => setCodeDraft(event.target.value)} /></div>}
           <div className="preview-footer"><span><ShieldCheck size={14}/> Runs in a sandboxed preview</span><span>{activeProject.files.length} file{activeProject.files.length === 1 ? "" : "s"} <span className="footer-dot">·</span> {activeProject.local ? "Saved on this device" : "Cloud project"}</span></div>
         </section> : <section className="templates-section"><div className="section-heading"><div><div className="section-eyebrow">A HEAD START</div><h2>Start with a strong foundation.</h2><p>Explore a working starter, or generate something entirely your own.</p></div><button className="text-button" onClick={() => setMessage({ kind: "info", text: setupHint })}>How it works <ArrowRight size={14}/></button></div><div className="template-grid">{TEMPLATES.map((template, index) => { const Icon = template.icon; return <button className="template-card" key={template.id} onClick={() => createStarter(template)}><div className={"template-art art-" + template.kind}><div className="art-window"><div className="art-window-top"><span/><span/><span/></div>{template.kind === "landing" ? <div className="art-landing"><i/><b/><b/><em/><span/></div> : template.kind === "dashboard" ? <div className="art-dashboard"><i/><div><b/><b/><b/></div><span/><span/><span/></div> : <div className="art-portfolio"><i/><b/><b/><span/><span/></div>}</div><span className="template-number">0{index + 1}</span><span className="template-tag">{template.tag}</span></div><div className="template-card-copy"><div className="template-icon"><Icon size={16}/></div><div className="template-copy-text"><strong>{template.title}</strong><p>{template.description}</p></div><span className="template-arrow"><ArrowRight size={16}/></span></div></button>; })}</div><div className="bottom-callout"><div className="callout-icon"><Rocket size={17}/></div><div><strong>Every great product starts somewhere.</strong><p>Use a starter as a reference—or write your own idea above to generate a custom application.</p></div><button className="button button-secondary" onClick={() => { textareaRef.current?.focus(); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Write a prompt <ArrowRight size={14}/></button></div></section>}
         <footer className="workspace-footer"><span>BLINK<span className="brand-period">.</span> <span className="footer-muted">Build with intelligence.</span></span><span><span className="footer-muted">{setupHint}</span> <span className="footer-dot">·</span> <button onClick={() => setMessage({ kind: "info", text: "BLINK previews run in a sandbox. Keep service-role and AI keys on the server, never in client code." })}>Security</button></span></footer>

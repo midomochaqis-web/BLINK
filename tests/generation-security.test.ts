@@ -6,7 +6,6 @@ describe("generated source path validation", () => {
     expect(isSafeGeneratedFilePath("index.html")).toBe(true);
     expect(isSafeGeneratedFilePath("assets/app.min.js")).toBe(true);
     expect(isSafeGeneratedFilePath("src/components/Button.tsx")).toBe(true);
-    expect(isSafeGeneratedFilePath(".env.example")).toBe(true);
   });
 
   it.each([
@@ -19,6 +18,12 @@ describe("generated source path validation", () => {
     "src\\page.tsx",
     "file name.html",
     ".env",
+    ".env.example",
+    "src/.env.production",
+    "CON",
+    "aux.txt",
+    "trailing.",
+    "trailing ",
     ".git/config",
     "node_modules/package/index.js",
     ".npmrc",

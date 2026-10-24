@@ -209,6 +209,16 @@ export default function Home() {
       setMessage({ kind: "error", text: "This project has too much supporting source to send safely as edit context. Make a focused change in the source editor or remove unused files first." });
       return;
     }
+    const generationBody = JSON.stringify({
+      prompt: trimmed,
+      projectName: activeProject?.title,
+      existingHtml: activeProject?.html,
+      existingFiles,
+    });
+    if (new TextEncoder().encode(generationBody).byteLength > 440000) {
+      setMessage({ kind: "error", text: "This project's source context is too large to send safely. Use a shorter prompt or edit the source directly." });
+      return;
+    }
     setGenerating(true); setMessage(null); setActiveTab("preview");
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -216,16 +226,15 @@ export default function Home() {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionData.session.access_token },
-        body: JSON.stringify({
-          prompt: trimmed,
-          projectName: activeProject?.title,
-          existingHtml: activeProject?.html,
-          existingFiles,
-        }),
+        body: generationBody,
       });
       const data = await response.json() as GeneratedProject & { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not generate this project.");
-      const project: Project = { id: activeProject && !activeProject.local ? activeProject.id : makeId(), title: (data.name || "Untitled project").slice(0, 120), prompt: trimmed, html: data.html, files: data.files?.length ? data.files : starterFiles(data.html), updated_at: new Date().toISOString(), local: false };
+      const generatedFiles = data.files?.length ? data.files : starterFiles(data.html);
+      const generatedPaths = new Set(generatedFiles.map((file) => file.path.toLowerCase()));
+      const retainedFiles = existingFiles.filter((file) => !generatedPaths.has(file.path.toLowerCase()));
+      const mergedFiles = [...generatedFiles, ...retainedFiles].slice(0, 30);
+      const project: Project = { id: activeProject && !activeProject.local ? activeProject.id : makeId(), title: (data.name || "Untitled project").slice(0, 120), prompt: trimmed, html: data.html, files: mergedFiles, updated_at: new Date().toISOString(), local: false };
       const saved = await persistProject(project);
       setActiveProject(saved);
       setActiveFilePath("index.html");

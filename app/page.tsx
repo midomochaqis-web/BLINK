@@ -198,6 +198,17 @@ export default function Home() {
       setMessage({ kind: "error", text: "This project is too large to send as edit context. Use the source editor for a focused change, or start a smaller project." });
       return;
     }
+    const existingFiles = activeProject?.files.filter((file) => file.path.toLowerCase() !== "index.html") ?? [];
+    const invalidContextFile = existingFiles.find((file) => !isSafeGeneratedFilePath(file.path));
+    const supportingFilesBytes = existingFiles.reduce((total, file) => total + new TextEncoder().encode(file.content).byteLength, 0);
+    if (invalidContextFile) {
+      setMessage({ kind: "error", text: "This project contains an unsafe source-file path. Remove or rename that file before using AI editing." });
+      return;
+    }
+    if (existingFiles.length > 29 || supportingFilesBytes > 80000) {
+      setMessage({ kind: "error", text: "This project has too much supporting source to send safely as edit context. Make a focused change in the source editor or remove unused files first." });
+      return;
+    }
     setGenerating(true); setMessage(null); setActiveTab("preview");
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -209,6 +220,7 @@ export default function Home() {
           prompt: trimmed,
           projectName: activeProject?.title,
           existingHtml: activeProject?.html,
+          existingFiles,
         }),
       });
       const data = await response.json() as GeneratedProject & { error?: string };

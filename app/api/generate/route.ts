@@ -40,6 +40,9 @@ export async function POST(request: Request) {
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token || token.length > 10000) return fail("Sign in to generate an application.", 401);
 
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (Number.isFinite(declaredLength) && declaredLength > 12000) return fail("The request body is too large.", 413);
+
   let body: unknown;
   try {
     body = await request.json();

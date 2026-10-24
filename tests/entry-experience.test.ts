@@ -32,6 +32,27 @@ describe("BLINK first-run experience", () => {
     expect(route).toContain('Authorization: `Bearer ${providerKey}`');
   });
 
+  it("persists project-scoped AI conversation history with owner-scoped reads", () => {
+    const page = read("app/page.tsx");
+    const schema = read("supabase/migrations/202610240001_initial_schema.sql");
+    expect(page).toContain('from("ai_conversations")');
+    expect(page).toContain('from("ai_messages")');
+    expect(page).toContain("persistConversationTurn");
+    expect(page).toContain("loadConversation");
+    expect(schema).toContain("create table if not exists public.user_profiles");
+    expect(schema).toContain("create table if not exists public.ai_conversations");
+    expect(schema).toContain("create table if not exists public.ai_messages");
+    expect(schema).toContain("enable row level security");
+    expect(schema).toContain("auth.uid()");
+  });
+
+  it("consumes generation quota with the authenticated user's token, not a service key", () => {
+    const route = read("app/api/generate/route.ts");
+    expect(route).toContain('authClient.rpc("consume_generation_quota"');
+    expect(route).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(route).toContain("Bearer " + '+ " " + token');
+  });
+
   it("does not pretend GitHub Pages can authenticate or generate apps", () => {
     const page = read("index.html");
 

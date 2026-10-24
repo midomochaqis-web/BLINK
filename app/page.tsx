@@ -53,6 +53,7 @@ export default function Home() {
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authInitializing, setAuthInitializing] = useState(true);
+  const [recoveryMode, setRecoveryMode] = useState(false);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -119,8 +120,15 @@ export default function Home() {
       .then(({ data }) => { setUser(data.user); void loadProjects(data.user); })
       .catch(() => { setUser(null); void loadProjects(null); })
       .finally(() => setAuthInitializing(false));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const nextUser = session?.user || null;
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryMode(true);
+        setPassword("");
+        setMessage({ kind: "info", text: "Choose a new password to secure your BLINK account." });
+      } else if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        setRecoveryMode(false);
+      }
       setUser(nextUser);
       setAuthInitializing(false);
       void loadProjects(nextUser);
@@ -153,6 +161,47 @@ export default function Home() {
       }
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "Authentication failed. Please retry." }); }
     finally { setAuthBusy(false); }
+  }
+
+  async function requestPasswordReset() {
+    if (!supabase) { setMessage({ kind: "error", text: "Password recovery requires the connected Supabase authentication service." }); return; }
+    if (!email.trim()) {
+      setMessage({ kind: "error", text: "Enter your email address first so we know where to send the recovery link." });
+      document.getElementById("gateway-email")?.focus();
+      return;
+    }
+    setAuthBusy(true);
+    setMessage(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (error) throw error;
+      setMessage({ kind: "success", text: "If an account exists for that address, a password recovery link will arrive shortly. Check your email." });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not request password recovery. Please retry." });
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function saveNewPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) { setMessage({ kind: "error", text: "Password changes require the connected Supabase authentication service." }); return; }
+    if (password.length < 8) { setMessage({ kind: "error", text: "Choose a password with at least 8 characters." }); return; }
+    setAuthBusy(true);
+    setMessage(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      setRecoveryMode(false);
+      setPassword("");
+      setMessage({ kind: "success", text: "Your password has been updated. Your workspace is ready." });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not update your password. Request a new recovery link and retry." });
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   async function signOut() {
@@ -361,13 +410,13 @@ export default function Home() {
     return <main className="auth-gateway auth-gateway-loading"><div className="auth-loading-card"><span className="brand-mark"><Sparkles size={18}/></span><LoaderCircle size={19} className="spin"/><strong>Restoring your workspace</strong><span>Securing your session…</span></div></main>;
   }
 
-  if (!user) {
+  if (!user || recoveryMode) {
     return <main className="auth-gateway">
       <section className="auth-gateway-grid">
         <div className="auth-story">
           <div className="auth-topbrand">
             <button className="auth-brand" type="button" aria-label="BLINK home"><span className="brand-mark"><Sparkles size={18} strokeWidth={2.4}/></span><span>BLINK<span className="brand-period">.</span></span></button>
-            <span className="auth-status-tag"><span className="auth-status-dot"/>{supabase ? "PRIVATE WORKSPACE" : "WORKSPACE PREVIEW"}</span>
+            <span className="auth-status-tag"><span className="auth-status-dot"/>{!supabase ? "STATIC PREVIEW" : generationReady ? "AI WORKSPACE READY" : "ACCOUNT SERVICE READY"}</span>
           </div>
           <div className="auth-story-copy">
             <div className="auth-eyebrow"><Sparkles size={13}/> FROM FIRST THOUGHT TO FIRST BUILD</div>
@@ -383,19 +432,20 @@ export default function Home() {
         </div>
         <div className="auth-panel-wrap">
           <section className="auth-panel" aria-labelledby="auth-title">
-            <div className="auth-panel-top"><span className="auth-panel-kicker">{authMode === "signup" ? "A GOOD PLACE TO BEGIN" : "GOOD TO HAVE YOU BACK"}</span><span className="auth-step">01 <span>/ 01</span></span></div>
-            <h2 id="auth-title">{authMode === "signup" ? "Create your space." : "Welcome back."}</h2>
-            <p className="auth-panel-description">{authMode === "signup" ? "One account for every idea you want to bring to life." : "Sign in to pick up where your last idea left off."}</p>
-            <div className="auth-mode-switch" role="tablist" aria-label="Account access">
+            <div className="auth-panel-top"><span className="auth-panel-kicker">{recoveryMode ? "ACCOUNT SECURITY" : authMode === "signup" ? "A GOOD PLACE TO BEGIN" : "GOOD TO HAVE YOU BACK"}</span><span className="auth-step">01 <span>/ 01</span></span></div>
+            <h2 id="auth-title">{recoveryMode ? "Set a new password." : authMode === "signup" ? "Create your space." : "Welcome back."}</h2>
+            <p className="auth-panel-description">{recoveryMode ? "Choose a new password before returning to your private workspace." : authMode === "signup" ? "One account for every idea you want to bring to life." : "Sign in to pick up where your last idea left off."}</p>
+            {!recoveryMode && <div className="auth-mode-switch" role="tablist" aria-label="Account access">
               <button type="button" role="tab" aria-selected={authMode === "signup"} className={authMode === "signup" ? "selected" : ""} onClick={() => { setAuthMode("signup"); setMessage(null); }}>Create account</button>
               <button type="button" role="tab" aria-selected={authMode === "signin"} className={authMode === "signin" ? "selected" : ""} onClick={() => { setAuthMode("signin"); setMessage(null); }}>Sign in</button>
-            </div>
-            <form className="auth-gateway-form" onSubmit={(event) => void handleAuth(event)}>
-              <label htmlFor="gateway-email">Email address</label>
-              <div className="auth-gateway-input"><Mail size={16}/><input id="gateway-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></div>
-              <div className="auth-label-row"><label htmlFor="gateway-password">Password</label>{authMode === "signup" && <span>8 characters or more</span>}</div>
-              <div className="auth-gateway-input"><LockKeyhole size={16}/><input id="gateway-password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /></div>
-              <button className="auth-gateway-submit" type="submit" disabled={authBusy}>{authBusy ? <><LoaderCircle size={16} className="spin"/> Please wait…</> : <>{authMode === "signup" ? "Create my account" : "Sign in to BLINK"} <ArrowRight size={16}/></>}</button>
+            </div>}
+            <form className="auth-gateway-form" onSubmit={(event) => void (recoveryMode ? saveNewPassword(event) : handleAuth(event))}>
+              {!recoveryMode && <><label htmlFor="gateway-email">Email address</label>
+              <div className="auth-gateway-input"><Mail size={16}/><input id="gateway-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></div></>}
+              <div className="auth-label-row"><label htmlFor="gateway-password">{recoveryMode ? "New password" : "Password"}</label>{(recoveryMode || authMode === "signup") && <span>8 characters or more</span>}{!recoveryMode && authMode === "signin" && <button type="button" className="auth-forgot" onClick={() => void requestPasswordReset()} disabled={authBusy}>Forgot password?</button>}</div>
+              <div className="auth-gateway-input"><LockKeyhole size={16}/><input id="gateway-password" type="password" autoComplete={recoveryMode || authMode === "signup" ? "new-password" : "current-password"} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder={recoveryMode ? "Choose a new password" : "Enter your password"} /></div>
+              <button className="auth-gateway-submit" type="submit" disabled={authBusy}>{authBusy ? <><LoaderCircle size={16} className="spin"/> Please wait…</> : <>{recoveryMode ? "Update password" : authMode === "signup" ? "Create my account" : "Sign in to BLINK"} <ArrowRight size={16}/></>}</button>
+              {recoveryMode && <button type="button" className="auth-back-to-signin" onClick={() => { setRecoveryMode(false); setMessage(null); setAuthMode("signin"); void supabase?.auth.signOut(); }}>Back to sign in</button>}
             </form>
             {message && <div className={"auth-gateway-message auth-gateway-message-" + message.kind} role="status"><span>{message.kind === "error" ? <X size={15}/> : message.kind === "success" ? <Check size={15}/> : <CircleHelp size={15}/>}</span><p>{message.text}</p><button type="button" onClick={() => setMessage(null)} aria-label="Dismiss notice"><X size={14}/></button></div>}
             {!supabase && <div className="auth-setup-notice"><span className="auth-setup-icon"><LockKeyhole size={16}/></span><div><strong>Secure account service isn't connected here yet.</strong><p>This URL is the static GitHub Pages preview. It cannot submit accounts or run the server-side AI API. Deploy the full Next.js app and add the private environment settings to activate this form.</p><a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmidomochaqis-web%2FBLINK&project-name=blink-platform" target="_blank" rel="noreferrer">Set up the full BLINK app <ArrowRight size={13}/></a></div></div>}

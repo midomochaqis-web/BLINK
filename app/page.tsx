@@ -312,7 +312,7 @@ export default function Home() {
     try {
       const zip = new JSZip();
       const entries = activeProject.files.filter((file) => file.path.toLowerCase() !== "index.html");
-      const reservedPaths = new Set(["index.html", "readme.md"]);
+      const reservedPaths = new Set(["index.html"]);
       for (const file of entries) {
         const pathKey = file.path.toLowerCase();
         if (!isSafeGeneratedFilePath(file.path) || reservedPaths.has(pathKey)) {
@@ -323,7 +323,13 @@ export default function Home() {
       zip.file("index.html", enforcePreviewPolicy(activeProject.html));
       for (const file of entries) zip.file(file.path, file.content);
       const safeName = activeProject.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "blink-project";
-      zip.file("README.md", "# " + activeProject.title + "\n\nGenerated with BLINK.\n\nOpen index.html in a browser to preview the standalone application.\n\nNote: external network access is disabled in the preview for safety. Server-dependent features require your own backend integration.\n");
+      let notesPath = reservedPaths.has("readme.md") ? "BLINK-EXPORT-NOTES.md" : "README.md";
+      let notesSuffix = 2;
+      while (reservedPaths.has(notesPath.toLowerCase())) {
+        notesPath = "BLINK-EXPORT-NOTES-" + notesSuffix + ".md";
+        notesSuffix += 1;
+      }
+      zip.file(notesPath, "# " + activeProject.title + "\n\nGenerated with BLINK.\n\nOpen index.html in a browser to preview the standalone application.\n\nNote: external network access is disabled in the preview for safety. Server-dependent features require your own backend integration.\n");
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");

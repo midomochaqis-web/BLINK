@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { enforcePreviewPolicy, isSafeGeneratedFilePath } from "@/lib/generation/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,13 +56,6 @@ async function readBoundedJson(request: Request, maxBytes: number): Promise<unkn
   return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown;
 }
 
-function enforcePreviewPolicy(source: string): string {
-  const policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' data:; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'\">";
-  let html = source.replace(/<meta\b[^>]*content-security-policy[^>]*>/gi, "");
-  if (/<head\b[^>]*>/i.test(html)) return html.replace(/<head\b[^>]*>/i, (head) => head + policy);
-  if (/<html\b[^>]*>/i.test(html)) return html.replace(/<html\b[^>]*>/i, (tag) => tag + "<head>" + policy + "</head>");
-  return html.replace(/<!doctype\s+html[^>]*>/i, (doctype) => doctype + "<head>" + policy + "</head>");
-}
 
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -173,10 +167,8 @@ export async function POST(request: Request) {
       const pathKey = file.path.toLowerCase();
       const parts = file.path.split("/");
       if (
-        !/^[a-zA-Z0-9._/-]+$/.test(file.path) ||
-        file.path.startsWith("/") ||
+        !isSafeGeneratedFilePath(file.path) ||
         parts.some((part) => !part || part === "." || part === "..") ||
-        file.path.includes("\\") ||
         paths.has(pathKey)
       ) {
         return fail("The AI provider returned an invalid or duplicate file path. Try again.", 502);

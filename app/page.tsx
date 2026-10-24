@@ -33,7 +33,16 @@ function makeStarterHtml(kind: Template["kind"]) {
   return head + "<nav><div class='brand'>alex morgan<span class='accent'>.</span></div><div><a href='#work'>Work</a><a href='#about'>About</a><a href='#contact'>Contact</a></div></nav><main class='wrap'><div class='eyebrow'>Independent designer · Available for select projects</div><h1 class='hero-title'>Making digital feel a little more <span class='accent'>human.</span></h1><p class='lead'>I partner with ambitious teams to turn complex ideas into clear, considered digital experiences.</p><button class='btn' id='contact-btn'>Let's talk ↗</button><section class='section' id='work'><div class='eyebrow'>Selected work · 2024—26</div><h2>A few things I've helped bring to life.</h2><div class='grid' style='grid-template-columns:repeat(2,minmax(0,1fr))'><article class='project-card'><span class='tag'>PRODUCT DESIGN</span><h3>Forma — Everyday finance</h3><p class='muted'>A calmer way to understand and manage money.</p></article><article class='project-card'><span class='tag'>BRAND & DIGITAL</span><h3>Fieldnotes — Creative tools</h3><p class='muted'>A thoughtful identity for people who make things.</p></article><article class='project-card'><span class='tag'>STRATEGY</span><h3>Common Ground</h3><p class='muted'>Making room for better conversations.</p></article><article class='project-card'><span class='tag'>WEB EXPERIENCE</span><h3>Stillwell — Wellbeing</h3><p class='muted'>Small rituals for a more intentional day.</p></article></div></section><section class='section' id='about'><div class='eyebrow'>A little about me</div><h2>Curious by nature. Careful by design.</h2><p class='lead'>I care about the details people notice—and the ones they don't.</p></section><div class='status' id='contact'>Thanks for reaching out. This starter shows where a contact workflow can connect.</div></main><script>document.getElementById('contact-btn').addEventListener('click',function(){var e=document.getElementById('contact');e.style.display='block';e.scrollIntoView({behavior:'smooth'})})</script></body></html>";
 }
 
-function makeId() { return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : "local-" + Date.now() + "-" + Math.random().toString(36).slice(2); }
+function makeId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+}
 function starterFiles(html: string) { return [{ path: "index.html", content: html }]; }
 function formatDate(value: string) { const d = new Date(value); return Number.isNaN(d.getTime()) ? "Just now" : new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(d); }
 
@@ -183,11 +192,23 @@ export default function Home() {
       return;
     }
     if (!generationReady) { setMessage({ kind: "error", text: "AI generation is not configured yet. Set the server environment variables and apply the database migration." }); return; }
+    if (activeProject && activeProject.html.length > 120000) {
+      setMessage({ kind: "error", text: "This project is too large to send as edit context. Use the source editor for a focused change, or start a smaller project." });
+      return;
+    }
     setGenerating(true); setMessage(null); setActiveTab("preview");
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !sessionData.session?.access_token) throw new Error("Your session expired. Sign in again.");
-      const response = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionData.session.access_token }, body: JSON.stringify({ prompt: trimmed }) });
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionData.session.access_token },
+        body: JSON.stringify({
+          prompt: trimmed,
+          projectName: activeProject?.title,
+          existingHtml: activeProject?.html,
+        }),
+      });
       const data = await response.json() as GeneratedProject & { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not generate this project.");
       const project: Project = { id: activeProject && !activeProject.local ? activeProject.id : makeId(), title: (data.name || "Untitled project").slice(0, 120), prompt: trimmed, html: data.html, files: data.files?.length ? data.files : starterFiles(data.html), updated_at: new Date().toISOString(), local: false };

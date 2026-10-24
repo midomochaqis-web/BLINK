@@ -141,10 +141,27 @@ export default function Home() {
   }
 
   async function persistProject(project: Project) {
-    if (supabase && user && !project.local) {
-      const { data, error } = await supabase.from("projects").upsert({ id: project.id, user_id: user.id, title: project.title.slice(0, 120), prompt: project.prompt.slice(0, 8000), html: project.html, files: project.files }).select("id,title,prompt,html,files,updated_at").single();
+    if (supabase && user) {
+      const projectId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(project.id) ? project.id : makeId();
+      const cloudProject: Project = { ...project, id: projectId, local: false };
+      const { data, error } = await supabase.from("projects").upsert({
+        id: cloudProject.id,
+        user_id: user.id,
+        title: cloudProject.title.slice(0, 120),
+        prompt: cloudProject.prompt.slice(0, 8000),
+        html: cloudProject.html,
+        files: cloudProject.files,
+      }).select("id,title,prompt,html,files,updated_at").single();
       if (error) throw new Error(error.message);
-      return { ...project, ...data, files: Array.isArray(data.files) ? data.files as Project["files"] : [], local: false } as Project;
+      if (project.local) {
+        setProjects((current) => current.filter((item) => item.id !== project.id));
+        try {
+          const raw = localStorage.getItem("blink.localProjects");
+          const savedLocals = raw ? JSON.parse(raw) as Project[] : [];
+          if (Array.isArray(savedLocals)) localStorage.setItem("blink.localProjects", JSON.stringify(savedLocals.filter((item) => item.id !== project.id)));
+        } catch { /* the cloud copy is saved even if local storage is unavailable */ }
+      }
+      return { ...cloudProject, ...data, files: Array.isArray(data.files) ? data.files as Project["files"] : [], local: false } as Project;
     }
     const localProject: Project = { ...project, local: true };
     saveLocalProjects([localProject, ...projects.filter((p) => p.id !== localProject.id)].slice(0, 50));

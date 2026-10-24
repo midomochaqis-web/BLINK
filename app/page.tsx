@@ -69,6 +69,9 @@ export default function Home() {
   const [previewRuntimeError, setPreviewRuntimeError] = useState<string | null>(null);
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [conversationMessages, setConversationMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; created_at: string }>>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
@@ -235,6 +238,67 @@ export default function Home() {
     void loadProjects(null);
   }
 
+  async function loadConversation(project: Project, currentUser: User | null = user) {
+    if (!supabase || !currentUser || project.local) {
+      setConversationId(null);
+      setConversationMessages([]);
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      const { data: conversation, error: conversationError } = await supabase
+        .from("ai_conversations")
+        .select("id")
+        .eq("project_id", project.id)
+        .eq("user_id", currentUser.id)
+        .maybeSingle();
+      if (conversationError) throw conversationError;
+      if (!conversation) {
+        setConversationId(null);
+        setConversationMessages([]);
+        return;
+      }
+      const { data: messages, error: messagesError } = await supabase
+        .from("ai_messages")
+        .select("id,role,content,created_at")
+        .eq("conversation_id", conversation.id)
+        .order("created_at", { ascending: true })
+        .limit(100);
+      if (messagesError) throw messagesError;
+      setConversationId(conversation.id);
+      setConversationMessages((messages ?? []) as Array<{ id: string; role: "user" | "assistant"; content: string; created_at: string }>);
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? "Could not load this project's AI conversation: " + error.message : "Could not load this project's AI conversation." });
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function persistConversationTurn(project: Project, userText: string, assistantText: string, summary: string) {
+    if (!supabase || !user || project.local) return;
+    let currentConversationId = conversationId;
+    if (!currentConversationId) {
+      const { data, error } = await supabase.from("ai_conversations").upsert({
+        user_id: user.id,
+        project_id: project.id,
+        title: userText.slice(0, 180) || project.title,
+        model: process.env.NEXT_PUBLIC_BLINK_MODEL || "gpt-4.1-mini",
+      }, { onConflict: "user_id,project_id" }).select("id").single();
+      if (error) throw new Error("Could not create AI conversation: " + error.message);
+      currentConversationId = data.id;
+      setConversationId(data.id);
+    }
+    const rows = [
+      { conversation_id: currentConversationId, user_id: user.id, role: "user", content: userText.slice(0, 60000), metadata: { project_id: project.id } },
+      { conversation_id: currentConversationId, user_id: user.id, role: "assistant", content: assistantText.slice(0, 60000), metadata: { summary: summary.slice(0, 1000), project_id: project.id } },
+    ];
+    const { data, error } = await supabase.from("ai_messages").insert(rows).select("id,role,content,created_at");
+    if (error) throw new Error("The project was saved, but the AI conversation could not be saved: " + error.message);
+    setConversationMessages((current) => [...current, ...(data ?? []) as Array<{ id: string; role: "user" | "assistant"; content: string; created_at: string }>].slice(-100));
+    const { error: updateError } = await supabase.from("ai_conversations").update({ title: userText.slice(0, 180) || project.title }).eq("id", currentConversationId).eq("user_id", user.id);
+    if (updateError) console.error("BLINK conversation title update failed", updateError.message);
+  }
+
   async function persistProject(project: Project) {
     if (supabase && user) {
       const projectId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(project.id) ? project.id : makeId();
@@ -325,6 +389,7 @@ export default function Home() {
       setActiveFilePath("index.html");
       setCodeDraft(saved.files.find((file) => file.path === "index.html")?.content || saved.html);
       setProjects((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 50));
+      await persistConversationTurn(saved, trimmed, data.summary || "Your application is ready. Preview it, inspect the code, or download the HTML.", data.summary || "Application generated successfully.");
       setMessage({ kind: "success", text: data.summary || "Your application is ready. Preview it, inspect the code, or download the HTML." });
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "Generation failed. Please try again." }); }
     finally { setGenerating(false); }
@@ -334,7 +399,7 @@ export default function Home() {
     const html = makeStarterHtml(template.kind);
     const project: Project = { id: makeId(), title: template.title, prompt: "Starter template: " + template.title + ". " + template.description, html, files: starterFiles(html), updated_at: new Date().toISOString(), local: true };
     const next = [project, ...projects.filter((p) => p.id !== project.id)].slice(0, 50);
-    saveLocalProjects(next); setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(html); setPrompt(project.prompt); setActiveTab("preview"); setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1);
+    saveLocalProjects(next); setActiveProject(project); setConversationId(null); setConversationMessages([]); setActiveFilePath("index.html"); setCodeDraft(html); setPrompt(project.prompt); setActiveTab("preview"); setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1);
     setMessage({ kind: "success", text: template.title + " is ready to explore. This starter is saved locally on this device." });
   }
 
@@ -348,7 +413,7 @@ export default function Home() {
     } catch (error) { setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not save the project." }); }
   }
 
-  function openProject(project: Project) { setActiveProject(project); setActiveFilePath("index.html"); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1); }
+  function openProject(project: Project) { setActiveProject(project); setConversationId(null); setConversationMessages([]); setActiveFilePath("index.html"); setCodeDraft(project.files.find((file) => file.path === "index.html")?.content || project.html); setPrompt(project.prompt); setActiveTab("preview"); setMessage(null); setPreviewRuntimeError(null); setPreviewRevision((revision) => revision + 1); void loadConversation(project); }
 
   async function deleteProject(project: Project) {
     try {

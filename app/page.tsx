@@ -52,6 +52,8 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [authInitializing, setAuthInitializing] = useState(true);
+  const [previewRevision, setPreviewRevision] = useState(0);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -108,11 +110,19 @@ export default function Home() {
   useEffect(() => {
     setBackendConfigured(isSupabaseConfigured());
     fetch("/api/health", { cache: "no-store" }).then((r) => r.json()).then((d) => setGenerationReady(d.status === "ready")).catch(() => setGenerationReady(false));
-    if (!supabase) { void loadProjects(null); return; }
-    supabase.auth.getUser().then(({ data }) => { setUser(data.user); void loadProjects(data.user); }).catch(() => void loadProjects(null));
+    if (!supabase) {
+      setAuthInitializing(false);
+      void loadProjects(null);
+      return;
+    }
+    supabase.auth.getUser()
+      .then(({ data }) => { setUser(data.user); void loadProjects(data.user); })
+      .catch(() => { setUser(null); void loadProjects(null); })
+      .finally(() => setAuthInitializing(false));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const nextUser = session?.user || null;
       setUser(nextUser);
+      setAuthInitializing(false);
       void loadProjects(nextUser);
     });
     return () => subscription.unsubscribe();
@@ -347,6 +357,56 @@ export default function Home() {
 
   const setupHint = !backendConfigured ? "Connect Supabase to enable secure accounts and cloud projects." : !generationReady ? "Add the AI provider key and apply the Supabase migration to enable generation." : "Your builder is ready for AI generation.";
 
+  if (authInitializing) {
+    return <main className="auth-gateway auth-gateway-loading"><div className="auth-loading-card"><span className="brand-mark"><Sparkles size={18}/></span><LoaderCircle size={19} className="spin"/><strong>Restoring your workspace</strong><span>Securing your session…</span></div></main>;
+  }
+
+  if (!user) {
+    return <main className="auth-gateway">
+      <section className="auth-gateway-grid">
+        <div className="auth-story">
+          <div className="auth-topbrand">
+            <button className="auth-brand" type="button" aria-label="BLINK home"><span className="brand-mark"><Sparkles size={18} strokeWidth={2.4}/></span><span>BLINK<span className="brand-period">.</span></span></button>
+            <span className="auth-status-tag"><span className="auth-status-dot"/>{supabase ? "PRIVATE WORKSPACE" : "WORKSPACE PREVIEW"}</span>
+          </div>
+          <div className="auth-story-copy">
+            <div className="auth-eyebrow"><Sparkles size={13}/> FROM FIRST THOUGHT TO FIRST BUILD</div>
+            <h1>Make room for<br/>what's <span>possible.</span></h1>
+            <p>A calmer place to turn an idea into a real, editable web experience. Describe what you need, see it running, and keep shaping it until it feels right.</p>
+            <div className="auth-proof-grid">
+              <article><span>01</span><strong>Describe it</strong><small>Start with your idea, not a blank editor.</small></article>
+              <article><span>02</span><strong>See it work</strong><small>Explore your result in a live, isolated preview.</small></article>
+              <article><span>03</span><strong>Make it yours</strong><small>Edit code, refine with AI and export source.</small></article>
+            </div>
+          </div>
+          <div className="auth-story-footer"><span><ShieldCheck size={14}/> Your projects stay private to your account.</span><span>BLACK / WHITE / INDIGO</span></div>
+        </div>
+        <div className="auth-panel-wrap">
+          <section className="auth-panel" aria-labelledby="auth-title">
+            <div className="auth-panel-top"><span className="auth-panel-kicker">{authMode === "signup" ? "A GOOD PLACE TO BEGIN" : "GOOD TO HAVE YOU BACK"}</span><span className="auth-step">01 <span>/ 01</span></span></div>
+            <h2 id="auth-title">{authMode === "signup" ? "Create your space." : "Welcome back."}</h2>
+            <p className="auth-panel-description">{authMode === "signup" ? "One account for every idea you want to bring to life." : "Sign in to pick up where your last idea left off."}</p>
+            <div className="auth-mode-switch" role="tablist" aria-label="Account access">
+              <button type="button" role="tab" aria-selected={authMode === "signup"} className={authMode === "signup" ? "selected" : ""} onClick={() => { setAuthMode("signup"); setMessage(null); }}>Create account</button>
+              <button type="button" role="tab" aria-selected={authMode === "signin"} className={authMode === "signin" ? "selected" : ""} onClick={() => { setAuthMode("signin"); setMessage(null); }}>Sign in</button>
+            </div>
+            <form className="auth-gateway-form" onSubmit={(event) => void handleAuth(event)}>
+              <label htmlFor="gateway-email">Email address</label>
+              <div className="auth-gateway-input"><Mail size={16}/><input id="gateway-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></div>
+              <div className="auth-label-row"><label htmlFor="gateway-password">Password</label>{authMode === "signup" && <span>8 characters or more</span>}</div>
+              <div className="auth-gateway-input"><LockKeyhole size={16}/><input id="gateway-password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /></div>
+              <button className="auth-gateway-submit" type="submit" disabled={authBusy}>{authBusy ? <><LoaderCircle size={16} className="spin"/> Please wait…</> : <>{authMode === "signup" ? "Create my account" : "Sign in to BLINK"} <ArrowRight size={16}/></>}</button>
+            </form>
+            {message && <div className={"auth-gateway-message auth-gateway-message-" + message.kind} role="status"><span>{message.kind === "error" ? <X size={15}/> : message.kind === "success" ? <Check size={15}/> : <CircleHelp size={15}/>}</span><p>{message.text}</p><button type="button" onClick={() => setMessage(null)} aria-label="Dismiss notice"><X size={14}/></button></div>}
+            {!supabase && <div className="auth-setup-notice"><span className="auth-setup-icon"><LockKeyhole size={16}/></span><div><strong>Secure account service isn't connected here yet.</strong><p>This URL is the static GitHub Pages preview. It cannot submit accounts or run the server-side AI API. Deploy the full Next.js app and add the private environment settings to activate this form.</p><a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmidomochaqis-web%2FBLINK&project-name=blink-platform" target="_blank" rel="noreferrer">Set up the full BLINK app <ArrowRight size={13}/></a></div></div>}
+            <div className="auth-security-note"><ShieldCheck size={15}/><span>Passwords are sent only to the configured authentication provider. BLINK never stores them in project records.</span></div>
+          </section>
+          <footer className="auth-panel-footer"><span>© BLINK</span><span>Build with intent. Keep the details.</span></footer>
+        </div>
+      </section>
+    </main>;
+  }
+
   return <main className="app-shell">
     {sidebarOpen && <aside className="sidebar">
       <button className="brand" onClick={resetWorkspace} aria-label="BLINK home"><span className="brand-mark"><Sparkles size={17} strokeWidth={2.5}/></span><span>BLINK<span className="brand-period">.</span></span></button>
@@ -373,7 +433,7 @@ export default function Home() {
         {message && <div className={"notice notice-" + message.kind} role="status"><span className="notice-icon">{message.kind === "success" ? <Check size={15}/> : message.kind === "error" ? <X size={15}/> : <CircleHelp size={15}/>}</span><span>{message.text}</span><button aria-label="Dismiss notice" onClick={() => setMessage(null)}><X size={14}/></button></div>}
         {activeProject ? <section className="builder-panel">
           <div className="preview-toolbar"><div className="preview-title"><span className="live-dot"/><strong>{activeProject.title}</strong><span className="preview-version">Latest version</span></div><div className="preview-actions"><div className="preview-tabs"><button className={activeTab === "preview" ? "selected" : ""} onClick={() => setActiveTab("preview")}><Eye size={14}/> Preview</button><button className={activeTab === "code" ? "selected" : ""} onClick={() => { const path = activeProject.files.some((file) => file.path === activeFilePath) ? activeFilePath : "index.html"; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || activeProject.html); setActiveTab("code"); }}><Code2 size={14}/> Code</button></div><div className="device-toggle"><button className={!mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(false)} aria-label="Desktop preview"><Monitor size={15}/></button><button className={mobilePreview ? "selected" : ""} onClick={() => setMobilePreview(true)} aria-label="Mobile preview"><Smartphone size={15}/></button></div><button className="icon-button" onClick={() => void saveCurrentProject()} title="Save project" aria-label="Save project"><Save size={15}/></button><button className="icon-button" onClick={() => void downloadSourceBundle()} title="Download complete source bundle" aria-label="Download complete source bundle"><Archive size={15}/></button><button className="icon-button" onClick={downloadProject} title="Download HTML" aria-label="Download HTML"><ArrowDownToLine size={15}/></button></div></div>
-          {activeTab === "preview" ? <div className="preview-stage"><div className={"browser-frame " + (mobilePreview ? "mobile-frame" : "")}><div className="browser-chrome"><div className="traffic-lights"><i/><i/><i/></div><div className="browser-url"><LockKeyhole size={10}/> blink-preview.local</div><ArrowRight size={13} className="browser-reload"/></div><iframe className="preview-iframe" title={"Preview of " + activeProject.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={enforcePreviewPolicy(activeProject.html)}/></div></div> : <div className="code-panel"><div className="code-file"><FileCode2 size={14}/><select className="source-file-select" aria-label="Choose source file" value={activeFilePath} onChange={(event) => { const path = event.target.value; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || (path === "index.html" ? activeProject.html : "")); }}><option value="index.html">index.html</option>{activeProject.files.filter((file) => file.path !== "index.html").map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}</select><button onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(codeDraft).then(() => setMessage({ kind: "success", text: "Source code copied." })).catch(() => setMessage({ kind: "error", text: "Clipboard access was denied." })); }}><Code2 size={13}/> Copy source</button><button className="apply-code-button" onClick={applyCodeChanges}><Check size={13}/> Apply changes</button></div><textarea className="code-editor" aria-label="Edit generated HTML" spellCheck={false} value={codeDraft} maxLength={700000} onChange={(event) => setCodeDraft(event.target.value)} /></div>}
+          {activeTab === "preview" ? <div className="preview-stage"><div className={"browser-frame " + (mobilePreview ? "mobile-frame" : "")}><div className="browser-chrome"><div className="traffic-lights"><i/><i/><i/></div><div className="browser-url"><LockKeyhole size={10}/> blink-preview.local</div><button className="browser-reload" type="button" onClick={() => setPreviewRevision((revision) => revision + 1)} aria-label="Restart preview" title="Restart preview"><ArrowRight size={13}/></button></div><iframe key={previewRevision} className="preview-iframe" title={"Preview of " + activeProject.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={enforcePreviewPolicy(activeProject.html)}/></div></div> : <div className="code-panel"><div className="code-file"><FileCode2 size={14}/><select className="source-file-select" aria-label="Choose source file" value={activeFilePath} onChange={(event) => { const path = event.target.value; setActiveFilePath(path); setCodeDraft(activeProject.files.find((file) => file.path === path)?.content || (path === "index.html" ? activeProject.html : "")); }}><option value="index.html">index.html</option>{activeProject.files.filter((file) => file.path !== "index.html").map((file) => <option key={file.path} value={file.path}>{file.path}</option>)}</select><button onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(codeDraft).then(() => setMessage({ kind: "success", text: "Source code copied." })).catch(() => setMessage({ kind: "error", text: "Clipboard access was denied." })); }}><Code2 size={13}/> Copy source</button><button className="apply-code-button" onClick={applyCodeChanges}><Check size={13}/> Apply changes</button></div><textarea className="code-editor" aria-label="Edit generated HTML" spellCheck={false} value={codeDraft} maxLength={700000} onChange={(event) => setCodeDraft(event.target.value)} /></div>}
           <div className="preview-footer"><span><ShieldCheck size={14}/> Runs in a sandboxed preview</span><span>{activeProject.files.length} file{activeProject.files.length === 1 ? "" : "s"} <span className="footer-dot">·</span> {activeProject.local ? "Saved on this device" : "Cloud project"}</span></div>
         </section> : <section className="templates-section"><div className="section-heading"><div><div className="section-eyebrow">A HEAD START</div><h2>Start with a strong foundation.</h2><p>Explore a working starter, or generate something entirely your own.</p></div><button className="text-button" onClick={() => setMessage({ kind: "info", text: setupHint })}>How it works <ArrowRight size={14}/></button></div><div className="template-grid">{TEMPLATES.map((template, index) => { const Icon = template.icon; return <button className="template-card" key={template.id} onClick={() => createStarter(template)}><div className={"template-art art-" + template.kind}><div className="art-window"><div className="art-window-top"><span/><span/><span/></div>{template.kind === "landing" ? <div className="art-landing"><i/><b/><b/><em/><span/></div> : template.kind === "dashboard" ? <div className="art-dashboard"><i/><div><b/><b/><b/></div><span/><span/><span/></div> : <div className="art-portfolio"><i/><b/><b/><span/><span/></div>}</div><span className="template-number">0{index + 1}</span><span className="template-tag">{template.tag}</span></div><div className="template-card-copy"><div className="template-icon"><Icon size={16}/></div><div className="template-copy-text"><strong>{template.title}</strong><p>{template.description}</p></div><span className="template-arrow"><ArrowRight size={16}/></span></div></button>; })}</div><div className="bottom-callout"><div className="callout-icon"><Rocket size={17}/></div><div><strong>Every great product starts somewhere.</strong><p>Use a starter as a reference—or write your own idea above to generate a custom application.</p></div><button className="button button-secondary" onClick={() => { textareaRef.current?.focus(); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Write a prompt <ArrowRight size={14}/></button></div></section>}
         <footer className="workspace-footer"><span>BLINK<span className="brand-period">.</span> <span className="footer-muted">Build with intelligence.</span></span><span><span className="footer-muted">{setupHint}</span> <span className="footer-dot">·</span> <button onClick={() => setMessage({ kind: "info", text: "BLINK previews run in a sandbox. Keep service-role and AI keys on the server, never in client code." })}>Security</button></span></footer>

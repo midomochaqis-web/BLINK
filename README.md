@@ -54,6 +54,23 @@ BLINK is an AI-powered application-building workspace. Describe an idea in plain
 - The preview blocks network requests and form submission by default. Generated features that need a real backend must be connected to a separately secured service.
 - This implementation is an MVP foundation, not a finished production service. Before public launch, add deployment-specific monitoring, billing controls, abuse reporting, automated integration/security tests, production observability, and a separately secured runtime for backend-dependent generated apps.
 
+## Container deployment
+
+BLINK includes a production standalone Next.js build suitable for a Node.js container host. GitHub Pages' default Jekyll deployment cannot run the /api/generate and /api/health server routes; use a Node-capable host, Vercel, or Docker for the full application.
+
+Build and run the container:
+
+```sh
+docker build -t blink-app .
+docker run --rm --name blink-app -p 3000:3000 \
+  -e NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
+  -e NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_PUBLIC_KEY \
+  -e SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_KEY \
+  -e OPENAI_API_KEY=YOUR_SERVER_ONLY_AI_KEY \
+  blink-app
+```
+
+Do not commit a populated .env.local or bake secrets into the image. On a production host, inject secrets through the platform's encrypted environment/secret settings, add TLS and an appropriate request timeout, and configure Supabase's allowed site/redirect URLs. Persist no user data in the container filesystem; projects and quota records belong in Supabase.
 ## Verification
 
 ```sh

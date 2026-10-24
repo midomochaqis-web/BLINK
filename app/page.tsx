@@ -5,7 +5,7 @@ import { Archive, ArrowDownToLine, ArrowRight, Blocks, Check, ChevronDown, Circl
 import JSZip from "jszip";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import { enforcePreviewPolicy } from "@/lib/generation/security";
+import { enforcePreviewPolicy, isSafeGeneratedFilePath } from "@/lib/generation/security";
 
 type Project = { id: string; title: string; prompt: string; html: string; files: Array<{ path: string; content: string }>; updated_at: string; local?: boolean };
 type GeneratedProject = { name: string; summary: string; html: string; files: Array<{ path: string; content: string }> };
@@ -290,7 +290,15 @@ export default function Home() {
     if (!activeProject) return;
     try {
       const zip = new JSZip();
-      const entries = activeProject.files.filter((file) => file.path !== "index.html");
+      const entries = activeProject.files.filter((file) => file.path.toLowerCase() !== "index.html");
+      const reservedPaths = new Set(["index.html", "readme.md"]);
+      for (const file of entries) {
+        const pathKey = file.path.toLowerCase();
+        if (!isSafeGeneratedFilePath(file.path) || reservedPaths.has(pathKey)) {
+          throw new Error("The project contains an unsafe or duplicate source path.");
+        }
+        reservedPaths.add(pathKey);
+      }
       zip.file("index.html", enforcePreviewPolicy(activeProject.html));
       for (const file of entries) zip.file(file.path, file.content);
       const safeName = activeProject.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "blink-project";

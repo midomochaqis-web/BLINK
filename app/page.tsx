@@ -52,7 +52,10 @@ function createPreviewDocument(source: string): string {
   // This small in-frame reporter observes JavaScript failures only; generated
   // code still runs in an opaque-origin iframe with network access blocked by CSP.
   const reporter = "<script>(function(){function report(message){try{parent.postMessage({type:'blink-preview-runtime-error',message:String(message).slice(0,240)},'*')}catch{}}window.addEventListener('error',function(event){report(event.message||'Script error')});window.addEventListener('unhandledrejection',function(event){var reason=event.reason;report(reason&&reason.message?reason.message:reason||'Unhandled promise rejection')})})();</script>";
-  return safeHtml.replace(/<\\/head>/i, reporter + "</head>");
+  const headClose = safeHtml.toLowerCase().indexOf("</head>");
+  return headClose >= 0
+    ? safeHtml.slice(0, headClose) + reporter + safeHtml.slice(headClose)
+    : safeHtml;
 }
 
 export default function Home() {

@@ -1,6 +1,6 @@
 {
-  "name": "blink-app-builder",
-  "version": "0.1.0",
+  "name": "blink-ai-platform",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,8 +15,7 @@
     "next": "^16.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "zod": "^4.0.0",
-    "jszip": "^3.10.1"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",

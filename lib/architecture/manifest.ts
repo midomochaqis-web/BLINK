@@ -77,7 +77,14 @@ export function validateArchitectureManifest(input: unknown): ManifestValidation
 
   for (const entry of manifest.entries) {
     const key = entry.path.toLowerCase();
-    if (!isSafeGeneratedFilePath(entry.path)) {
+    // The planner may recommend a blank .env.example template. Permit that exact
+    // documentation entry only when its purpose explicitly forbids real secrets;
+    // the generated-file path validator still rejects writing this path.
+    const safeEnvironmentTemplate =
+      entry.path === ".env.example" &&
+      entry.kind === "file" &&
+      /variable names only|no real secrets/i.test(entry.purpose);
+    if (!safeEnvironmentTemplate && !isSafeGeneratedFilePath(entry.path)) {
       errors.push(`Unsafe or non-portable architecture path: ${entry.path}`);
     }
     if (paths.has(key)) {
